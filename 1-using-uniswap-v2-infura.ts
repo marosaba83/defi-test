@@ -1,5 +1,7 @@
 // https://github.com/RudreshVeerkhare/UniswapPriceMonitor
 
+// https://defichain-value.com/d/pT8gjGInk/02-arbitrage-calculator?orgId=1&var-Exchange=DEX&var-Trade_Pair=All&var-Amount=1000%20DFI&var-query1=&var-Codes=ZB
+
 import Web3 from 'web3';
 import Big from 'big.js';
 import IUniswapV2Pair from './IUniswapV2Pair.json';
@@ -60,15 +62,17 @@ const mainWSS = async () => {
 
   // get current block number
   state.blockNumber = await web3Wss.eth.getBlockNumber();
-  state.fee = await web3Wss.eth.estimateGas({ from: PAIR_ADDR });
-  state.fee = await web3Wss.eth.estimateGas({ from: PAIR_ADDR });
+  // state.fee = await web3Wss.eth.estimateGas({ from: PAIR_ADDR });
 
   // subscribe to Sync event of Pair
-  PairContractWSS.events.Sync({}).on('data', (data) => updateState(data));
+  // PairContractWSS.events.Sync({}).on('data', (data) => {
+  //   console.log('data', data);
+  //   updateState(data)
+  // });
+  
   // PairContractWSS.events.allEvents({}).on('event', (event) => console.log('event', event))
   PairContractWSS.events.allEvents({}, e => console.log('event', e))
 
-  // calculate price and print
   // calculate price and print
   console.log(
     `Block: ${state.blockNumber} || Price ${TOKEN_0}/${TOKEN_1}: ${state.token0.div(state.token1).toString()} || Fee: ${state.fee}`

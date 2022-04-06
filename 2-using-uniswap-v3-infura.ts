@@ -1,23 +1,38 @@
 // Creating a Pool Instance
 // https://docs.uniswap.org/sdk/guides/creating-a-pool
 
-import { ethers } from 'ethers';
-import { Pool } from '@uniswap/v3-sdk';
-import { Token } from '@uniswap/sdk-core';
+import { BigNumber, Contract, ethers } from 'ethers';
+import { Pool, Route, Trade } from '@uniswap/v3-sdk';
+import { AlphaRouter } from '@uniswap/smart-order-router'
+import { Price, CurrencyAmount, Token, TradeType, Currency, Percent } from '@uniswap/sdk-core';
 import { abi as IUniswapV3PoolABI } from '@uniswap/v3-core/artifacts/contracts/interfaces/IUniswapV3Pool.sol/IUniswapV3Pool.json';
-import { addSyntheticLeadingComment, getAllJSDocTagsOfKind } from 'typescript';
+import { abi as QuoterABI } from '@uniswap/v3-periphery/artifacts/contracts/lens/Quoter.sol/Quoter.json';
+import { formatEther, formatUnits } from 'ethers/lib/utils';
 
 const provider = new ethers.providers.JsonRpcProvider(
   'https://mainnet.infura.io/v3/8496fe61720c4bb0bd280c68c7be2fdb'
 );
 
-const poolAddress = '0xcbcdf9626bc03e24f779434178a73a0b4bad62ed';
+const router = new AlphaRouter({ chainId: 1, provider });
 
-const poolContract = new ethers.Contract(
+// https://docs.ethers.io/v4/api-providers.html#:~:text=The%20frequency%20(in,your%20API%20calls.
+provider.pollingInterval = 10000;
+
+const poolAddress = '0x88e6a0c2ddd26feeb64f039a2c41296fcb3f5640';
+
+const poolContract: Contract = new Contract(
   poolAddress,
   IUniswapV3PoolABI,
   provider
 );
+
+const quoterAddress = '0xb27308f9F90D607463bb33eA1BeBb41C27CE5AB6';
+
+const quoterContract = new ethers.Contract(quoterAddress, QuoterABI, provider);
+
+
+const V3_SWAP_ROUTER_ADDRESS = '0x68b3465833fb72A70ecDF485E0e4C7bD8665Fc45';
+
 
 interface Immutables {
   factory: string;
@@ -58,6 +73,7 @@ async function getPoolImmutables() {
     tickSpacing,
     maxLiquidityPerTick,
   };
+
   return immutables;
 }
 
@@ -81,18 +97,26 @@ async function getPoolState() {
   return PoolState;
 }
 
-async function main() {
+async function getPool() {
   const [immutables, state] = await Promise.all([
     getPoolImmutables(),
     getPoolState(),
   ]);
 
-  const WBTC = new Token(3, immutables.token0, 8, 'WBTC', 'Wrapped BTC');
+  /**
+   * ChainID -- 1 o 3 ??
+   * segun https://chainlist.org/
+   * es 1
+   * segun https://docs.uniswap.org/sdk/guides/creating-a-pool
+   * es 3
+   * pero funciona con ambas
+   */
+  const USDC = new Token(1, immutables.token0, 6, 'USDC', 'USD Coin');
 
-  const ETH = new Token(3, immutables.token1, 18, 'ETH', 'Ether');
+  const ETH = new Token(1, immutables.token1, 18, 'ETH', 'Ether');
 
-  const WBTC_ETH_POOL = new Pool(
-    WBTC,
+  const USDC_ETH_POOL = new Pool(
+    USDC,
     ETH,
     immutables.fee,
     state.sqrtPriceX96.toString(),
@@ -100,14 +124,176 @@ async function main() {
     state.tick
   );
 
-  const token0Price = WBTC_ETH_POOL.token0Price;
-  const token1Price = WBTC_ETH_POOL.token1Price;
+  const amountOneThousend = 100000;
+  const amountTenThousend = 10000;
+  const amountUndredThousend = 100000;
+  const amountMillion = 1000000;
 
-  // console.log('poolExample', WBTC_ETH_POOL);
+  // call the quoter contract to determine the amount out of a swap, given an amount in
+  const quoteOneThousendOut =
+    await quoterContract.callStatic.quoteExactInputSingle(
+      immutables.token0,
+      immutables.token1,
+      immutables.fee,
+      amountOneThousend.toString(),
+      0
+    );
 
-  console.log('token0Price', token0Price);
-  console.log('token1Price', token1Price);
+  // create an instance of the route object in order to construct a trade object
+  const swapRoute = new Route([USDC_ETH_POOL], USDC, ETH);
 
+  // create an unchecked trade instance
+  const uncheckedTradeExample = await Trade.createUncheckedTrade({
+    route: swapRoute,
+    inputAmount: CurrencyAmount.fromRawAmount(
+      USDC,
+      amountOneThousend.toString()
+    ),
+    outputAmount: CurrencyAmount.fromRawAmount(
+      ETH,
+      quoteOneThousendOut.toString()
+    ),
+    tradeType: TradeType.EXACT_INPUT,
+  });
+
+  //
+  
+
+  const typedValueParsed = '100000000000000000000'
+  
+  const wethAmount = CurrencyAmount.fromRawAmount(ETH, typedValueParsed);
+  
+  const route = await router.route(
+    wethAmount,
+    USDC,
+    TradeType.EXACT_INPUT,
+    {
+      recipient: '0xaEFd7f5275fe45B8ce3C6d1DDEEcEd2f20DfB984',
+      slippageTolerance: new Percent(5, 100),
+      deadline: Math.floor(Date.now()/1000 +1800)
+    }
+  );
+
+  // const transaction = {
+  //   data: route.methodParameters.calldata,
+  //   to: V3_SWAP_ROUTER_ADDRESS,
+  //   value: BigNumber.from(route.methodParameters.value),
+  //   from: MY_ADDRESS,
+  //   gasPrice: BigNumber.from(route.gasPriceWei),
+  // };
+  
+  // await web3Provider.sendTransaction(transaction);
+
+  return {USDC_ETH_POOL, uncheckedTradeExample, route}
+}
+
+async function main() {
+  let lastToken0Price = '-1';
+  let lastToken1Price = '-1';
+
+  poolContract.on(
+    'Swap',
+    async (
+      sender,
+      recipient,
+      amount0: BigNumber,
+      amount1: BigNumber,
+      sqrtPriceX96: BigNumber,
+      liquidity,
+      tick
+    ) => {
+      const pool = (await getPool()).USDC_ETH_POOL;
+      const trade = (await getPool()).uncheckedTradeExample;
+      const route = (await getPool()).route;
+
+      // const Q96 = JSBI.exponentiate(JSBI.BigInt(2), JSBI.BigInt(96));
+      // const Q192 = JSBI.exponentiate(Q96, JSBI.BigInt(2));
+      // const poolPrice = new Price(
+      //   pool.token0,
+      //   pool.token1,
+      //   Q192,
+      //   JSBI.multiply(sqrtPriceX96, sqrtPriceX96)
+      // );
+
+      if (
+        lastToken0Price !== pool.token0Price.toFixed(pool.token0.decimals) ||
+        lastToken1Price !== pool.token1Price.toFixed(pool.token1.decimals)
+      ) {
+        console.log(
+          'Pool Change | ',
+          new Date(Date.now()).toISOString(),
+          ' | ',
+          pool.token0.name,
+          pool.token0Price.toFixed(7),
+          ' | ',
+          pool.token1.name,
+          pool.token1Price.toFixed(2),
+          ' | ',
+          'Token0',
+          formatUnits(amount0, pool.token0.decimals),
+          ' | ',
+          'Token1',
+          formatUnits(amount1, pool.token1.decimals),
+          // '\n',
+          
+          ' | ',
+          'Pool Tick',
+          pool.tickCurrent,
+          ' | ',
+          'Swap Tick',
+          tick,
+          
+          '\n',
+          ' | ',
+          'trade 1000 - input amount',
+          trade.inputAmount.toFixed(6),
+          ' | ',
+          'trade 1000 - output amount',
+          trade.outputAmount.toFixed(6),
+          ' | ',
+          'trade 1000 - execution price',
+          trade.executionPrice.toFixed(6),
+          ' | ',
+          'trade 1000 - price impact',
+          trade.priceImpact.toFixed(6),
+          // ' | ',
+          // 'trade 1000 - min amount slippage tolerance',
+          // trade.minimumAmountOut.toString(),
+          // ' | ',
+          // 'trade 1000 - min amount slippage tolerance',
+          // trade.maximumAmountIn.toString(),
+
+
+          '\n',
+          ' | ',
+          'Quote Exact In',
+          route.quote.toFixed(2),
+          ' | ',
+          'Gas Adjusted Quote In:',
+          route.quoteGasAdjusted.toFixed(2),
+          ' | ',
+          'Gas Used USD:',
+          route.estimatedGasUsedUSD.toFixed(6),
+
+          // ' | ',
+          // 'Token0/Token1',
+          // formatUnits(amount0.div(amount1), pool.token0.decimals).toString(),
+          // ' | ',
+          // 'Token1/Token0',
+          // formatUnits(amount1.div(amount0), pool.token1.decimals).toString(),
+          // ' | ',
+          // 'Token0*Token1',
+          // formatUnits(amount0.mul(amount1), pool.token1.decimals).toString(),
+          ' | ',
+          'Fee',
+          pool.fee
+        );
+
+        lastToken0Price = pool.token0Price.toFixed(pool.token0.decimals);
+        lastToken1Price = pool.token1Price.toFixed(pool.token1.decimals);
+      }
+    }
+  );
 }
 
 main();

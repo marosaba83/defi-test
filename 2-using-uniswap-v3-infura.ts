@@ -3,8 +3,15 @@
 
 import { BigNumber, Contract, ethers } from 'ethers';
 import { Pool, Route, Trade } from '@uniswap/v3-sdk';
-import { AlphaRouter } from '@uniswap/smart-order-router'
-import { Price, CurrencyAmount, Token, TradeType, Currency, Percent } from '@uniswap/sdk-core';
+import { AlphaRouter } from '@uniswap/smart-order-router';
+import {
+  Price,
+  CurrencyAmount,
+  Token,
+  TradeType,
+  Currency,
+  Percent,
+} from '@uniswap/sdk-core';
 import { abi as IUniswapV3PoolABI } from '@uniswap/v3-core/artifacts/contracts/interfaces/IUniswapV3Pool.sol/IUniswapV3Pool.json';
 import { abi as QuoterABI } from '@uniswap/v3-periphery/artifacts/contracts/lens/Quoter.sol/Quoter.json';
 import { formatEther, formatUnits } from 'ethers/lib/utils';
@@ -30,9 +37,7 @@ const quoterAddress = '0xb27308f9F90D607463bb33eA1BeBb41C27CE5AB6';
 
 const quoterContract = new ethers.Contract(quoterAddress, QuoterABI, provider);
 
-
 const V3_SWAP_ROUTER_ADDRESS = '0x68b3465833fb72A70ecDF485E0e4C7bD8665Fc45';
-
 
 interface Immutables {
   factory: string;
@@ -157,22 +162,16 @@ async function getPool() {
   });
 
   //
-  
 
-  const typedValueParsed = '100000000000000000000'
-  
-  const wethAmount = CurrencyAmount.fromRawAmount(ETH, typedValueParsed);
-  
-  const route = await router.route(
-    wethAmount,
-    USDC,
-    TradeType.EXACT_INPUT,
-    {
-      recipient: '0xaEFd7f5275fe45B8ce3C6d1DDEEcEd2f20DfB984',
-      slippageTolerance: new Percent(5, 100),
-      deadline: Math.floor(Date.now()/1000 +1800)
-    }
-  );
+  // const typedValueParsed = '1';
+
+  const wethAmount = CurrencyAmount.fromRawAmount(ETH, 1);
+
+  const route = await router.route(wethAmount, USDC, TradeType.EXACT_INPUT, {
+    recipient: '0xaEFd7f5275fe45B8ce3C6d1DDEEcEd2f20DfB984',
+    slippageTolerance: new Percent(5, 100),
+    deadline: Math.floor(Date.now() / 1000 + 1800),
+  });
 
   // const transaction = {
   //   data: route.methodParameters.calldata,
@@ -181,119 +180,175 @@ async function getPool() {
   //   from: MY_ADDRESS,
   //   gasPrice: BigNumber.from(route.gasPriceWei),
   // };
-  
+
   // await web3Provider.sendTransaction(transaction);
 
-  return {USDC_ETH_POOL, uncheckedTradeExample, route}
+  return { USDC_ETH_POOL, uncheckedTradeExample, route };
 }
 
 async function main() {
   let lastToken0Price = '-1';
   let lastToken1Price = '-1';
 
-  poolContract.on(
-    'Swap',
-    async (
-      sender,
-      recipient,
-      amount0: BigNumber,
-      amount1: BigNumber,
-      sqrtPriceX96: BigNumber,
-      liquidity,
-      tick
-    ) => {
-      const pool = (await getPool()).USDC_ETH_POOL;
-      const trade = (await getPool()).uncheckedTradeExample;
-      const route = (await getPool()).route;
+  const wait = 5000;
 
-      // const Q96 = JSBI.exponentiate(JSBI.BigInt(2), JSBI.BigInt(96));
-      // const Q192 = JSBI.exponentiate(Q96, JSBI.BigInt(2));
-      // const poolPrice = new Price(
-      //   pool.token0,
-      //   pool.token1,
-      //   Q192,
-      //   JSBI.multiply(sqrtPriceX96, sqrtPriceX96)
-      // );
+  // clearInterval(intervalId)
 
-      if (
-        lastToken0Price !== pool.token0Price.toFixed(pool.token0.decimals) ||
-        lastToken1Price !== pool.token1Price.toFixed(pool.token1.decimals)
-      ) {
-        console.log(
-          'Pool Change | ',
-          new Date(Date.now()).toISOString(),
-          ' | ',
-          pool.token0.name,
-          pool.token0Price.toFixed(7),
-          ' | ',
-          pool.token1.name,
-          pool.token1Price.toFixed(2),
-          ' | ',
-          'Token0',
-          formatUnits(amount0, pool.token0.decimals),
-          ' | ',
-          'Token1',
-          formatUnits(amount1, pool.token1.decimals),
-          // '\n',
-          
-          ' | ',
-          'Pool Tick',
-          pool.tickCurrent,
-          ' | ',
-          'Swap Tick',
-          tick,
-          
-          '\n',
-          ' | ',
-          'trade 1000 - input amount',
-          trade.inputAmount.toFixed(6),
-          ' | ',
-          'trade 1000 - output amount',
-          trade.outputAmount.toFixed(6),
-          ' | ',
-          'trade 1000 - execution price',
-          trade.executionPrice.toFixed(6),
-          ' | ',
-          'trade 1000 - price impact',
-          trade.priceImpact.toFixed(6),
-          // ' | ',
-          // 'trade 1000 - min amount slippage tolerance',
-          // trade.minimumAmountOut.toString(),
-          // ' | ',
-          // 'trade 1000 - min amount slippage tolerance',
-          // trade.maximumAmountIn.toString(),
+  // With Debounce
+  const intervalId = setInterval(async () => {
+    const poolData = await getPool();
 
+    const pool = poolData.USDC_ETH_POOL;
+    const trade = poolData.uncheckedTradeExample;
+    const route = poolData.route;
 
-          '\n',
-          ' | ',
-          'Quote Exact In',
-          route.quote.toFixed(2),
-          ' | ',
-          'Gas Adjusted Quote In:',
-          route.quoteGasAdjusted.toFixed(2),
-          ' | ',
-          'Gas Used USD:',
-          route.estimatedGasUsedUSD.toFixed(6),
+    console.log(new Date().toLocaleString());
 
-          // ' | ',
-          // 'Token0/Token1',
-          // formatUnits(amount0.div(amount1), pool.token0.decimals).toString(),
-          // ' | ',
-          // 'Token1/Token0',
-          // formatUnits(amount1.div(amount0), pool.token1.decimals).toString(),
-          // ' | ',
-          // 'Token0*Token1',
-          // formatUnits(amount0.mul(amount1), pool.token1.decimals).toString(),
-          ' | ',
-          'Fee',
-          pool.fee
-        );
+    console.log(
+      'pool Change',
+      ' | ',
+      pool.token0.name,
+      pool.token0Price.toFixed(7),
+      ' | ',
+      pool.token1.name,
+      pool.token1Price.toFixed(2),
+      ' | ',
+      'pool Tick',
+      pool.tickCurrent,
 
-        lastToken0Price = pool.token0Price.toFixed(pool.token0.decimals);
-        lastToken1Price = pool.token1Price.toFixed(pool.token1.decimals);
-      }
-    }
-  );
+      '\n',
+      ' | ',
+      'trade 1000 - input amount',
+      trade.inputAmount.toFixed(6),
+      ' | ',
+      'trade 1000 - output amount',
+      trade.outputAmount.toFixed(6),
+      ' | ',
+      'trade 1000 - execution price',
+      trade.executionPrice.toFixed(6),
+      ' | ',
+      'trade 1000 - price impact',
+      trade.priceImpact.toFixed(6),
+
+      '\n',
+      ' | ',
+      'quote Exact In',
+      route.quote.toFixed(2),
+      ' | ',
+      'gas adjusted quote In',
+      route.quoteGasAdjusted.toFixed(2),
+      ' | ',
+      'gas used USD',
+      route.estimatedGasUsedUSD.toFixed(6),
+
+      ' | ',
+      'fee',
+      pool.fee
+    );
+  }, wait);
+
+  // poolContract.on(
+  //   'Swap',
+  //   async (
+  //     sender,
+  //     recipient,
+  //     amount0: BigNumber,
+  //     amount1: BigNumber,
+  //     sqrtPriceX96: BigNumber,
+  //     liquidity,
+  //     tick
+  //   ) => {
+  //     const pool = (await getPool()).USDC_ETH_POOL;
+  //     const trade = (await getPool()).uncheckedTradeExample;
+  //     const route = (await getPool()).route;
+
+  //     // const Q96 = JSBI.exponentiate(JSBI.BigInt(2), JSBI.BigInt(96));
+  //     // const Q192 = JSBI.exponentiate(Q96, JSBI.BigInt(2));
+  //     // const poolPrice = new Price(
+  //     //   pool.token0,
+  //     //   pool.token1,
+  //     //   Q192,
+  //     //   JSBI.multiply(sqrtPriceX96, sqrtPriceX96)
+  //     // );
+
+  //     if (
+  //       lastToken0Price !== pool.token0Price.toFixed(pool.token0.decimals) ||
+  //       lastToken1Price !== pool.token1Price.toFixed(pool.token1.decimals)
+  //     ) {
+  //       console.log(
+  //         'Pool Change | ',
+  //         new Date(Date.now()).toISOString(),
+  //         ' | ',
+  //         pool.token0.name,
+  //         pool.token0Price.toFixed(7),
+  //         ' | ',
+  //         pool.token1.name,
+  //         pool.token1Price.toFixed(2),
+  //         ' | ',
+  //         'Token0',
+  //         formatUnits(amount0, pool.token0.decimals),
+  //         ' | ',
+  //         'Token1',
+  //         formatUnits(amount1, pool.token1.decimals),
+  //         // '\n',
+
+  //         ' | ',
+  //         'Pool Tick',
+  //         pool.tickCurrent,
+  //         ' | ',
+  //         'Swap Tick',
+  //         tick,
+
+  //         '\n',
+  //         ' | ',
+  //         'trade 1000 - input amount',
+  //         trade.inputAmount.toFixed(6),
+  //         ' | ',
+  //         'trade 1000 - output amount',
+  //         trade.outputAmount.toFixed(6),
+  //         ' | ',
+  //         'trade 1000 - execution price',
+  //         trade.executionPrice.toFixed(6),
+  //         ' | ',
+  //         'trade 1000 - price impact',
+  //         trade.priceImpact.toFixed(6),
+  //         // ' | ',
+  //         // 'trade 1000 - min amount slippage tolerance',
+  //         // trade.minimumAmountOut.toString(),
+  //         // ' | ',
+  //         // 'trade 1000 - min amount slippage tolerance',
+  //         // trade.maximumAmountIn.toString(),
+
+  //         '\n',
+  //         ' | ',
+  //         'Quote Exact In',
+  //         route.quote.toFixed(2),
+  //         ' | ',
+  //         'Gas Adjusted Quote In:',
+  //         route.quoteGasAdjusted.toFixed(2),
+  //         ' | ',
+  //         'Gas Used USD:',
+  //         route.estimatedGasUsedUSD.toFixed(6),
+
+  //         // ' | ',
+  //         // 'Token0/Token1',
+  //         // formatUnits(amount0.div(amount1), pool.token0.decimals).toString(),
+  //         // ' | ',
+  //         // 'Token1/Token0',
+  //         // formatUnits(amount1.div(amount0), pool.token1.decimals).toString(),
+  //         // ' | ',
+  //         // 'Token0*Token1',
+  //         // formatUnits(amount0.mul(amount1), pool.token1.decimals).toString(),
+  //         ' | ',
+  //         'Fee',
+  //         pool.fee
+  //       );
+
+  //       lastToken0Price = pool.token0Price.toFixed(pool.token0.decimals);
+  //       lastToken1Price = pool.token1Price.toFixed(pool.token1.decimals);
+  //     }
+  //   }
+  // );
 }
 
 main();
